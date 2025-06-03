@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chinese Chess Test Client</title>
+    <script src="https://unpkg.com/colyseus.js@^0.16.0/dist/colyseus.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .status-container {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .status-container.your-turn {
+            background-color: #e6ffe6;
+            border: 2px solid #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
+        }
+        .status-container.opponent-turn {
+            background-color: #fff3e6;
+            border: 2px solid #ff9800;
+        }
+        .turn-indicator {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .player-info {
+            margin-bottom: 5px;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(9, 50px);
+            gap: 2px;
+            background-color: #deb887;
+            padding: 10px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .cell {
+            width: 50px;
+            height: 50px;
+            border: 1px solid #8b4513;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 24px;
+            background-color: #f5deb3;
+            border-radius: 25px;
+            transition: all 0.2s ease;
+            position: relative;
+            user-select: none;
+        }
+        .cell.clickable {
+            cursor: pointer;
+            background-color: #f5deb3;
+        }
+        .cell.clickable:hover {
+            background-color: #ffe4b5;
+            transform: scale(1.05);
+        }
+        .cell.selected {
+            background-color: #ffeb3b;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+        .cell.movable {
+            background-color: #e8f5e9;
+            border-color: #66bb6a;
+        }
+        .cell.movable:hover {
+            background-color: #c8e6c9;
+        }
+        .cell.valid-move {
+            background-color: #b2dfdb;
+        }
+        .piece-red {
+            color: #ff4d4d;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .piece-black {
+            color: #000000;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .piece.selected {
+            background-color: #ffeb3b;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+        .piece.movable {
+            background-color: #e8f5e9;
+        }
+        .piece.movable:hover {
+            background-color: #c8e6c9;
+            transform: scale(1.05);
+        }
+        #status {
+            margin: 20px;
+            font-family: Arial, sans-serif;
+            white-space: pre-wrap;
+        }
+        .disconnected {
+            color: red;
+        }
+        .connected {
+            color: green;
+        }
+        .moving-piece {
+            position: fixed;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            pointer-events: none;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+        .ready-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+            display: block;
+            width: 200px;
+            margin: 10px auto;
+        }
+        .ready-button:hover {
+            background-color: #45a049;
+            transform: scale(1.05);
+        }
+        .ready-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .waiting-text {
+            color: #666;
+            font-style: italic;
+            margin: 10px 0;
+        }
+        .play-again-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+        }
+        .play-again-button:hover {
+            background-color: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div id="status-container" class="status-container">
+            <div id="turn-indicator" class="turn-indicator">Waiting for game to start...</div>
+            <div id="player-info" class="player-info"></div>
+            <div id="ready-container">
+                <button id="ready-button" class="ready-button">Click Ready to Start</button>
+                <div id="waiting-text" class="waiting-text" style="display: none;">
+                    Waiting for opponent to be ready...
+                </div>
+            </div>
+            <div id="play-again-container" style="display: none;">
+                <button id="play-again-button" class="play-again-button">Back to Start</button>
+            </div>
+            <div id="debug-info" style="font-family: monospace; font-size: 12px; margin-top: 10px;"></div>
+        </div>
+        <div class="board" id="board"></div>
+    </div>
+
+    <script>
+        let client;
+        let room;
+        let isConnecting = false;
+        let myColor = null;
+        let selectedCell = null;
+        let movingPiece = null;
+        let isReady = false;
+        
+        function showDebugInfo(info) {
+            const debugDiv = document.getElementById('debug-info');
+            debugDiv.textContent = JSON.stringify(info, null, 2);
+        }
+
+        function createBoard() {
+            const board = document.getElementById('board');
+            board.innerHTML = ''; // Clear existing board
+            
+            for (let y = 0; y < 10; y++) {
+                for (let x = 0; x < 9; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${x}-${y}`;
+                    
+                    // Add click handler directly to the cell
+                    cell.addEventListener('click', (e) => {
+                        console.log(`Cell clicked: ${x},${y}`);
+                        handleCellClick(x, y);
+                    });
+                    
+                    board.appendChild(cell);
+                }
+            }
+        }
+
+        function updateReadyState(state) {
+            const readyButton = document.getElementById('ready-button');
+            const waitingText = document.getElementById('waiting-text');
+            
+            if (!readyButton || !waitingText) return;
+
+            if (state.gameStarted) {
+                readyButton.style.display = 'none';
+                waitingText.style.display = 'none';
+                return;
+            }
+
+            const myReadyState = state.readyPlayers.get(room.sessionId);
+            
+            if (myReadyState) {
+                readyButton.disabled = true;
+                readyButton.textContent = 'Ready ✓';
+                waitingText.style.display = 'block';
+            } else {
+                readyButton.disabled = false;
+                readyButton.textContent = 'Ready';
+                waitingText.style.display = 'none';
+            }
+        }
+
+        async function connect() {
+            if (isConnecting) return;
+            isConnecting = true;
+            
+            try {
+                console.log("Attempting to connect...");
+                updateStatus('Connecting to server...', 'connecting');
+                
+                client = new Colyseus.Client('ws://localhost:3000');
+                
+                room = await client.joinOrCreate("chinese_chess");
+                console.log("Connected successfully!");
+
+                // Wait for initial state sync
+                await new Promise(resolve => {
+                    const checkState = () => {
+                        if (room.state && room.state.players) {
+                            resolve();
+                        } else {
+                            setTimeout(checkState, 100);
+                        }
+                    };
+                    checkState();
+                });
+
+                // Store my color when joining
+                myColor = room.state.players.get(room.sessionId);
+                console.log("My color:", myColor);
+                
+                // Create the board after connection
+                createBoard();
+                updateGameStatus();
+
+                // Set up ready button
+                const readyButton = document.getElementById('ready-button');
+                const readyContainer = document.getElementById('ready-container');
+                readyContainer.style.display = 'block';
+                
+                readyButton.onclick = () => {
+                    room.send("ready");
+                    isReady = true;
+                    readyButton.disabled = true;
+                    readyButton.textContent = 'Ready ✓';
+                };
+
+                // Set up play again button
+                const playAgainButton = document.getElementById('play-again-button');
+                playAgainButton.onclick = () => {
+                    room.send("playAgain");
+                    isReady = false;
+                    
+                    // Reset UI immediately
+                    readyContainer.style.display = 'block';
+                    readyButton.disabled = false;
+                    readyButton.textContent = 'Click Ready to Start';
+                    document.getElementById('waiting-text').style.display = 'none';
+                    document.getElementById('play-again-container').style.display = 'none';
+                };
+
+                // Listen to state changes
+                room.onStateChange((state) => {
+                    console.log("State updated:", state);
+                    updateBoard(state);
+                    updateGameStatus();
+                    updateReadyState(state);
+                    
+                    showDebugInfo({
+                        myColor,
+                        currentTurn: state.currentTurn,
+                        selectedCell,
+                        gameStarted: state.gameStarted,
+                        gameOver: state.gameOver,
+                        readyPlayers: Array.from(state.readyPlayers.entries())
+                    });
+                });
+
+                room.onError((code, message) => {
+                    console.error("Room error:", code, message);
+                    updateStatus(`Error: ${message}`, 'error');
+                });
+
+                room.onLeave((code) => {
+                    console.log("Left room:", code);
+                    updateStatus('Disconnected. Trying to reconnect...', 'disconnected');
+                    isConnecting = false;
+                    setTimeout(connect, 1000);
+                });
+
+            } catch (e) {
+                console.error("Connection error:", e);
+                updateStatus(`Could not connect! Error: ${e.message}`, 'error');
+                isConnecting = false;
+                setTimeout(connect, 1000);
+            }
+        }
+
+        function updateStatus(message, status) {
+            const container = document.getElementById('status-container');
+            const indicator = document.getElementById('turn-indicator');
+            
+            indicator.textContent = message;
+            
+            // Update container style based on status
+            container.className = 'status-container';
+            if (status === 'error' || status === 'disconnected') {
+                container.style.backgroundColor = '#ffebee';
+                container.style.borderColor = '#ef5350';
+            }
+        }
+
+        function updateGameStatus() {
+            if (!room || !room.state) return;
+
+            const container = document.getElementById('status-container');
+            const indicator = document.getElementById('turn-indicator');
+            const playerInfo = document.getElementById('player-info');
+            const readyContainer = document.getElementById('ready-container');
+            const playAgainContainer = document.getElementById('play-again-container');
+            const readyButton = document.getElementById('ready-button');
+            const waitingText = document.getElementById('waiting-text');
+
+            // Update player info
+            playerInfo.textContent = `You are playing as: ${myColor}`;
+
+            // Update state based on game state
+            switch (room.state.gameState) {
+                case "waiting_for_players":
+                case "waiting_for_ready":
+                    readyContainer.style.display = 'block';
+                    playAgainContainer.style.display = 'none';
+                    
+                    const myReadyState = room.state.readyPlayers.get(room.sessionId);
+                    const readyCount = room.state.readyPlayers.size;
+                    
+                    if (myReadyState) {
+                        indicator.textContent = `Waiting for opponent to be ready (${readyCount}/2)`;
+                        readyButton.disabled = true;
+                        readyButton.textContent = 'Ready ✓';
+                        waitingText.style.display = 'block';
+                    } else {
+                        indicator.textContent = `Click Ready to start (${readyCount}/2 players ready)`;
+                        readyButton.disabled = false;
+                        readyButton.textContent = 'Click Ready to Start';
+                        waitingText.style.display = 'none';
+                    }
+                    container.className = 'status-container';
+                    break;
+
+                case "playing":
+                    readyContainer.style.display = 'none';
+                    playAgainContainer.style.display = 'none';
+                    const isMyTurn = room.state.currentTurn === myColor;
+                    if (isMyTurn) {
+                        indicator.textContent = "🎯 Playing - Your Turn";
+                        container.className = 'status-container your-turn';
+                    } else {
+                        indicator.textContent = "⌛ Playing - Opponent's Turn";
+                        container.className = 'status-container opponent-turn';
+                    }
+                    break;
+
+                case "game_over":
+                    readyContainer.style.display = 'none';
+                    playAgainContainer.style.display = 'block';
+                    
+                    const winner = room.state.winner;
+                    const isWinner = winner === myColor;
+                    indicator.textContent = isWinner ? "Game Over! You won! 🎉" : "Game Over! Opponent won.";
+                    container.className = 'status-container';
+                    container.style.backgroundColor = isWinner ? '#e8f5e9' : '#ffebee';
+                    container.style.borderColor = isWinner ? '#4CAF50' : '#ef5350';
+                    break;
+            }
+
+            // Update debug info
+            showDebugInfo({
+                myColor,
+                gameState: room.state.gameState,
+                currentTurn: room.state.currentTurn,
+                readyPlayers: Array.from(room.state.readyPlayers.entries()),
+                selectedCell
+            });
+        }
+
+        function createMovingPiece(piece, startX, startY) {
+            // Remove any existing moving piece
+            if (movingPiece) {
+                movingPiece.remove();
+            }
+
+            // Create new moving piece
+            movingPiece = document.createElement('div');
+            movingPiece.className = `moving-piece ${piece < 10 ? 'piece-red' : 'piece-black'}`;
+            
+            // Set the piece symbol
+            const isRed = piece < 10;
+            let symbol = '';
+            switch (piece % 10) {
+                case 1: symbol = isRed ? '車' : '車'; break;
+                case 2: symbol = isRed ? '馬' : '馬'; break;
+                case 3: symbol = isRed ? '相' : '象'; break;
+                case 4: symbol = isRed ? '仕' : '士'; break;
+                case 5: symbol = isRed ? '帥' : '將'; break;
+                case 6: symbol = isRed ? '炮' : '炮'; break;
+                case 7: symbol = isRed ? '兵' : '卒'; break;
+            }
+            movingPiece.textContent = symbol;
+
+            // Get the board and cell positions
+            const board = document.getElementById('board');
+            const startCell = document.getElementById(`cell-${startX}-${startY}`);
+            const boardRect = board.getBoundingClientRect();
+            const cellRect = startCell.getBoundingClientRect();
+
+            // Position the piece at the start cell's position
+            movingPiece.style.left = `${cellRect.left}px`;
+            movingPiece.style.top = `${cellRect.top}px`;
+
+            // Add to document
+            document.body.appendChild(movingPiece);
+            return movingPiece;
+        }
+
+        function animatePieceMovement(fromX, fromY, toX, toY, piece) {
+            return new Promise((resolve) => {
+                const movingPiece = createMovingPiece(piece, fromX, fromY);
+                const toCell = document.getElementById(`cell-${toX}-${toY}`);
+                const toCellRect = toCell.getBoundingClientRect();
+
+                // Force reflow
+                movingPiece.offsetHeight;
+
+                // Animate to target position
+                movingPiece.style.left = `${toCellRect.left}px`;
+                movingPiece.style.top = `${toCellRect.top}px`;
+
+                movingPiece.addEventListener('transitionend', () => {
+                    movingPiece.remove();
+                    resolve();
+                });
+            });
+        }
+
+        function handleCellClick(x, y) {
+            console.log(`Cell clicked at (${x}, ${y})`);
+            console.log('Current state:', {
+                myColor,
+                currentTurn: room?.state?.currentTurn,
+                isConnected: room?.connection?.isOpen,
+                gameOver: room?.state?.gameOver
+            });
+
+            if (!room || !room.connection.isOpen) {
+                console.log("Not connected to room");
+                return;
+            }
+
+            if (!room.state.gameStarted) {
+                console.log("Game hasn't started yet");
+                return;
+            }
+
+            if (room.state.gameOver) {
+                console.log("Game is over");
+                return;
+            }
+
+            if (room.state.currentTurn !== myColor) {
+                console.log("Not your turn");
+                return;
+            }
+
+            const shouldFlipBoard = myColor === "black";
+            const boardX = shouldFlipBoard ? 8 - x : x;
+            const boardY = shouldFlipBoard ? 9 - y : y;
+            const index = boardY * 9 + boardX;
+            const piece = room.state.board[index];
+
+            console.log(`Processing click:`, {
+                displayCoords: {x, y},
+                boardCoords: {boardX, boardY},
+                piece,
+                myColor
+            });
+
+            if (!selectedCell) {
+                // Selecting a piece
+                if (piece === 0) {
+                    console.log("No piece at selected position");
+                    return;
+                }
+
+                const isPieceRed = piece > 0 && piece < 10;
+                console.log(`Piece validation:`, {piece, isPieceRed, myColor});
+
+                if ((myColor === "red" && !isPieceRed) || (myColor === "black" && isPieceRed)) {
+                    console.log("Cannot select opponent's piece");
+                    return;
+                }
+
+                selectedCell = { x: boardX, y: boardY, displayX: x, displayY: y, piece: piece };
+                const cell = document.getElementById(`cell-${x}-${y}`);
+                if (cell) {
+                    cell.classList.add('selected');
+                    console.log("Piece selected:", selectedCell);
+                } else {
+                    console.error("Selected cell element not found:", `cell-${x}-${y}`);
+                }
+            } else {
+                // Moving a piece
+                if (selectedCell.displayX === x && selectedCell.displayY === y) {
+                    const cell = document.getElementById(`cell-${x}-${y}`);
+                    if (cell) {
+                        cell.classList.remove('selected');
+                    }
+                    selectedCell = null;
+                    console.log("Piece deselected");
+                    return;
+                }
+
+                console.log("Attempting move:", {
+                    from: selectedCell,
+                    to: {x, y, boardX, boardY}
+                });
+
+                const moveData = {
+                    fromX: selectedCell.x,
+                    fromY: selectedCell.y,
+                    toX: boardX,
+                    toY: boardY
+                };
+
+                // Start animation and send move after it completes
+                animatePieceMovement(selectedCell.displayX, selectedCell.displayY, x, y, selectedCell.piece)
+                    .then(() => {
+                        console.log("Sending move:", moveData);
+                        room.send("move", moveData);
+                    })
+                    .catch(error => {
+                        console.error("Move error:", error);
+                    });
+
+                const cell = document.getElementById(`cell-${selectedCell.displayX}-${selectedCell.displayY}`);
+                if (cell) {
+                    cell.classList.remove('selected');
+                }
+                selectedCell = null;
+            }
+        }
+
+        function updateBoard(state) {
+            if (!state || !state.board) return;
+            
+            updateGameStatus();
+            
+            const shouldFlipBoard = myColor === "black";
+            const isMyTurn = state.currentTurn === myColor;
+            
+            for (let y = 0; y < 10; y++) {
+                for (let x = 0; x < 9; x++) {
+                    const displayY = shouldFlipBoard ? 9 - y : y;
+                    const displayX = shouldFlipBoard ? 8 - x : x;
+                    
+                    const index = y * 9 + x;
+                    const piece = state.board[index];
+                    
+                    const cell = document.getElementById(`cell-${displayX}-${displayY}`);
+                    if (!cell) {
+                        console.error(`Cell not found: cell-${displayX}-${displayY}`);
+                        continue;
+                    }
+
+                    // Reset cell state
+                    cell.className = 'cell';
+                    if (isMyTurn) {
+                        cell.classList.add('clickable');
+                    }
+                    cell.innerText = '';
+                    
+                    if (piece > 0) {
+                        const isRed = piece < 10;
+                        let symbol = '';
+                        switch (piece % 10) {
+                            case 1: symbol = isRed ? '車' : '車'; break;
+                            case 2: symbol = isRed ? '馬' : '馬'; break;
+                            case 3: symbol = isRed ? '相' : '象'; break;
+                            case 4: symbol = isRed ? '仕' : '士'; break;
+                            case 5: symbol = isRed ? '帥' : '將'; break;
+                            case 6: symbol = isRed ? '炮' : '炮'; break;
+                            case 7: symbol = isRed ? '兵' : '卒'; break;
+                        }
+                        cell.innerText = symbol;
+                        cell.classList.add(isRed ? 'piece-red' : 'piece-black');
+                        
+                        // Add movable class if it's the player's turn and their piece
+                        if (isMyTurn) {
+                            if ((myColor === "red" && isRed) || (myColor === "black" && !isRed)) {
+                                cell.classList.add('movable');
+                            }
+                        }
+                    }
+
+                    // Maintain selection state
+                    if (selectedCell && selectedCell.displayX === displayX && selectedCell.displayY === displayY) {
+                        cell.classList.add('selected');
+                    }
+                }
+            }
+        }
+
+        // Start connection
+        connect();
+
+        // Add reconnection on visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && (!room || !room.connection.isOpen)) {
+                connect();
+            }
+        });
+    </script>
+</body>
+</html> 
