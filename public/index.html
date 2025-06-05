@@ -302,8 +302,9 @@
                 playAgainButton.onclick = () => {
                     room.send("playAgain");
                     isReady = false;
-                    
                     // Reset UI immediately
+                    const readyContainer = document.getElementById('ready-container');
+                    const readyButton = document.getElementById('ready-button');
                     readyContainer.style.display = 'block';
                     readyButton.disabled = false;
                     readyButton.textContent = 'Click Ready to Start';
@@ -382,10 +383,14 @@
                 case "waiting_for_ready":
                     readyContainer.style.display = 'block';
                     playAgainContainer.style.display = 'none';
-                    
+                    readyButton.style.display = 'block';
+                    readyButton.disabled = false;
+                    readyButton.textContent = 'Click Ready to Start';
+                    waitingText.style.display = 'none';
+
                     const myReadyState = room.state.readyPlayers.get(room.sessionId);
                     const readyCount = room.state.readyPlayers.size;
-                    
+
                     if (myReadyState) {
                         indicator.textContent = `Waiting for opponent to be ready (${readyCount}/2)`;
                         readyButton.disabled = true;
@@ -416,7 +421,7 @@
                 case "game_over":
                     readyContainer.style.display = 'none';
                     playAgainContainer.style.display = 'block';
-                    
+                    readyButton.style.display = 'block'; // Ensure ready button is visible for next round
                     const winner = room.state.winner;
                     const isWinner = winner === myColor;
                     indicator.textContent = isWinner ? "Game Over! You won! 🎉" : "Game Over! Opponent won.";

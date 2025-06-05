@@ -1,4 +1,4 @@
-import { Schema, type, MapSchema } from "@colyseus/schema";
+import { Schema, type, MapSchema, ArraySchema } from "@colyseus/schema";
 
 export interface IPiece {
   type: string;
@@ -12,39 +12,28 @@ export type GameState = "waiting_for_players" | "waiting_for_ready" | "playing" 
 
 export class ChineseChessState extends Schema {
   @type("string")
-  currentTurn: PlayerColor = "red";
+  currentTurn = "red";
 
   @type({ map: "string" })
-  players = new MapSchema<PlayerColor>();
+  players = new MapSchema<string>();
 
   @type({ map: "boolean" })
   readyPlayers = new MapSchema<boolean>();
 
   @type("string")
-  gameState: GameState = "waiting_for_players";
+  gameState = "waiting_for_players";
 
   @type("boolean")
-  gameStarted: boolean = false;
+  gameStarted = false;
 
   @type("boolean")
-  gameOver: boolean = false;
+  gameOver = false;
 
   @type("string")
-  winner: PlayerColor | "" = "";
+  winner = "";
 
   @type(["number"])
-  board: number[] = [
-    1, 2, 3, 4, 5, 4, 3, 2, 1,  // Red pieces (1-7)
-    0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 6, 0, 0, 0, 0, 0, 6, 0,
-    7, 0, 7, 0, 7, 0, 7, 0, 7,
-    0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0,
-    17, 0, 17, 0, 17, 0, 17, 0, 17,  // Black pieces (11-17)
-    0, 16, 0, 0, 0, 0, 0, 16, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0,
-    11, 12, 13, 14, 15, 14, 13, 12, 11
-  ];
+  board = new ArraySchema<number>();
 
   constructor() {
     super();
@@ -53,7 +42,7 @@ export class ChineseChessState extends Schema {
 
   initializeBoard() {
     // Initialize an empty board (9x10)
-    this.board = new Array(90).fill(0);
+    this.board = new ArraySchema<number>(...new Array(90).fill(0));
     
     // Set up initial piece positions
     this.setupInitialPosition();
